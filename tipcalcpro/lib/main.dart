@@ -14,7 +14,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     final prefs = await SharedPreferences.getInstance();
-    runApp(TipCalcPro(prefs: prefs));
+    final darkMode = prefs.getBool('darkMode') ?? false;
+    runApp(TipCalcPro(prefs: prefs, darkMode: darkMode));
   } catch (e) {
     runApp(const ErrorApp());
   }
@@ -28,7 +29,7 @@ class ErrorApp extends StatelessWidget {
     return MaterialApp(
       home: Scaffold(
         body: Center(
-          child: Text('Failed to initialize app: Please try again later'),
+          child: Text('Failed to initialize app. Please try again later.'),
         ),
       ),
     );
@@ -37,13 +38,20 @@ class ErrorApp extends StatelessWidget {
 
 class TipCalcPro extends StatelessWidget {
   final SharedPreferences prefs;
+  final bool darkMode;
 
-  const TipCalcPro({super.key, required this.prefs});
+  const TipCalcPro({
+    super.key,
+    required this.prefs,
+    required this.darkMode,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'TipCalcPro+',
+      debugShowCheckedModeBanner: false,
+      themeMode: darkMode ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.deepPurple,
@@ -58,9 +66,7 @@ class TipCalcPro extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      themeMode: ThemeMode.system,
       home: TipCalculatorScreen(prefs: prefs),
-      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -79,10 +85,12 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
   double _billAmount = 0.0;
   int _split = 1;
   double _tipPercent = 15.0;
+  bool _darkMode = false;
+
   late AnimationController _animationController;
   late Animation<double> _animation;
+
   final List<Map<String, dynamic>> _history = [];
-  bool _darkMode = false;
 
   double get _tipAmount => _billAmount * _tipPercent / 100;
   double get _totalAmount => _billAmount + _tipAmount;
@@ -127,10 +135,19 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
 
   Future<void> _toggleDarkMode() async {
     try {
-      await widget.prefs.setBool('darkMode', !_darkMode);
-      setState(() {
-        _darkMode = !_darkMode;
-      });
+      final newMode = !_darkMode;
+      await widget.prefs.setBool('darkMode', newMode);
+
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => TipCalcPro(
+              prefs: widget.prefs,
+              darkMode: newMode,
+            ),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('Error saving dark mode preference: $e');
     }
@@ -231,6 +248,7 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
               onIncrement: () => setState(() => _split++),
               onDecrement: () => setState(() => _split = _split > 1 ? _split - 1 : 1),
             ),
+            const SizedBox(height: 20),
             HistoryList(history: _history, onItemTap: _applyHistoryItem),
           ],
         ),
