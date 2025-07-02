@@ -3,10 +3,36 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// Custom widget imports
+import 'widgets/amount_card.dart';
+import 'widgets/bill_input_field.dart';
+import 'widgets/tip_presets.dart';
+import 'widgets/split_controls.dart';
+import 'widgets/history_list.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  runApp(TipCalcPro(prefs: prefs));
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    runApp(TipCalcPro(prefs: prefs));
+  } catch (e) {
+    runApp(const ErrorApp());
+  }
+}
+
+class ErrorApp extends StatelessWidget {
+  const ErrorApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Text('Failed to initialize app: Please try again later'),
+        ),
+      ),
+    );
+  }
 }
 
 class TipCalcPro extends StatelessWidget {
@@ -32,6 +58,7 @@ class TipCalcPro extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
+      themeMode: ThemeMode.system,
       home: TipCalculatorScreen(prefs: prefs),
       debugShowCheckedModeBanner: false,
     );
@@ -59,7 +86,7 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
 
   double get _tipAmount => _billAmount * _tipPercent / 100;
   double get _totalAmount => _billAmount + _tipAmount;
-  double get _totalPerPerson => _totalAmount / _split;
+  double get _totalPerPerson => _split > 0 ? _totalAmount / _split : _totalAmount;
 
   final TextEditingController _billController = TextEditingController();
   final FocusNode _billFocusNode = FocusNode();
@@ -77,26 +104,36 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
     _loadSettings();
-    _billFocusNode.addListener(() {
-      if (_billFocusNode.hasFocus) {
-        _animationController.forward();
-      } else {
-        _animationController.reverse();
-      }
-    });
+    _billFocusNode.addListener(_handleFocusChange);
+  }
+
+  void _handleFocusChange() {
+    if (_billFocusNode.hasFocus) {
+      _animationController.forward();
+    } else {
+      _animationController.reverse();
+    }
   }
 
   Future<void> _loadSettings() async {
-    setState(() {
-      _darkMode = widget.prefs.getBool('darkMode') ?? false;
-    });
+    try {
+      setState(() {
+        _darkMode = widget.prefs.getBool('darkMode') ?? false;
+      });
+    } catch (e) {
+      debugPrint('Error loading settings: $e');
+    }
   }
 
   Future<void> _toggleDarkMode() async {
-    setState(() {
-      _darkMode = !_darkMode;
-    });
-    await widget.prefs.setBool('darkMode', _darkMode);
+    try {
+      await widget.prefs.setBool('darkMode', !_darkMode);
+      setState(() {
+        _darkMode = !_darkMode;
+      });
+    } catch (e) {
+      debugPrint('Error saving dark mode preference: $e');
+    }
   }
 
   void _addToHistory() {
@@ -123,9 +160,9 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
   void _applyHistoryItem(Map<String, dynamic> item) {
     HapticFeedback.lightImpact();
     setState(() {
-      _billAmount = item['billAmount'];
-      _tipPercent = item['tipPercent'];
-      _split = item['split'];
+      _billAmount = (item['billAmount'] as num).toDouble();
+      _tipPercent = (item['tipPercent'] as num).toDouble();
+      _split = item['split'] as int;
       _billController.text = _billAmount.toStringAsFixed(2);
     });
   }
@@ -139,91 +176,68 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TipCalcPro+', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'TipCalcPro+',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
             icon: Icon(_darkMode ? Icons.light_mode : Icons.dark_mode),
             onPressed: _toggleDarkMode,
+            tooltip: 'Toggle dark mode',
           ),
         ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ScaleTransition(
-              scale: _animation,
-              child: Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    gradient: LinearGradient(
-                      colors: [
-                        colorScheme.primary.withValues(alpha: (0.8 * 255).round()),
-                        colorScheme.primary,
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    children: [
-                      const Text('Total Per Person', style: TextStyle(fontSize: 18, color: Colors.white)),
-                      const SizedBox(height: 8),
-                      Text(
-                        '\$${_totalPerPerson.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          Column(
-                            children: [
-                              const Text('Total Bill', style: TextStyle(fontSize: 14, color: Colors.white70)),
-                              Text(
-                                '\$${_totalAmount.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                          Column(
-                            children: [
-                              const Text('Tip Amount', style: TextStyle(fontSize: 14, color: Colors.white70)),
-                              Text(
-                                '\$${_tipAmount.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            AmountCard(
+              totalPerPerson: _totalPerPerson,
+              totalAmount: _totalAmount,
+              tipAmount: _tipAmount,
+              animation: _animation,
             ),
-            // ... remaining UI code continues unchanged ...
+            const SizedBox(height: 20),
+            BillInputField(
+              controller: _billController,
+              focusNode: _billFocusNode,
+              onChanged: (value) {
+                final parsedValue = double.tryParse(value) ?? 0.0;
+                if (parsedValue >= 0) {
+                  setState(() {
+                    _billAmount = parsedValue;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 20),
+            const Text('Tip Percentage', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            TipPresets(
+              presets: _tipPresets,
+              selected: _tipPercent,
+              onSelected: _setTipPercentage,
+            ),
+            const SizedBox(height: 20),
+            const Text('Split Between', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            SplitControls(
+              split: _split,
+              onIncrement: () => setState(() => _split++),
+              onDecrement: () => setState(() => _split = _split > 1 ? _split - 1 : 1),
+            ),
+            HistoryList(history: _history, onItemTap: _applyHistoryItem),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _addToHistory,
+        tooltip: 'Save to history',
         child: const Icon(Icons.save),
       ),
     );
@@ -233,6 +247,7 @@ class _TipCalculatorScreenState extends State<TipCalculatorScreen>
   void dispose() {
     _animationController.dispose();
     _billController.dispose();
+    _billFocusNode.removeListener(_handleFocusChange);
     _billFocusNode.dispose();
     super.dispose();
   }
